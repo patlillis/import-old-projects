@@ -1,6 +1,7 @@
 import { Octokit } from "@octokit/rest";
 import chalk from "chalk";
 import fs from "fs-extra";
+import { sortBy } from "lodash";
 import path from "path";
 
 let api: Octokit;
@@ -47,73 +48,61 @@ const checkPermissions = async (projectName: string, username: string) => {
   );
 };
 
-const checkStatus = async (projectName: string): Promise<ProjectInfo> => {
+const getProjectInfo = async (projectName: string): Promise<ProjectInfo> => {
   // Grab info about base project.
-  const { data: repo } = await api.repos.get({
-    owner: "patlillis-xx",
+  const repoInfo = await api.repos.get({
+    owner: "patlillis",
     repo: projectName,
   });
 
+  const owner = repoInfo.data.owner.login;
+  const repo = repoInfo.data.name;
+
   // Check stargazer info.
   const allStargazers = await api.activity.listStargazersForRepo({
-    owner: "patlillis-xx",
-    repo: projectName,
+    owner,
+    repo,
   });
   const stargazers = (allStargazers.data as any[])
     .map((s) => s.login)
     .filter((s) => s !== "patlillis" && s !== "patlillis-xx");
 
   // Check watcher info.
-  const allWatchers = await api.activity.listWatchersForRepo({
-    owner: "patlillis-xx",
-    repo: projectName,
-  });
+  const allWatchers = await api.activity.listWatchersForRepo({ owner, repo });
   const watchers = allWatchers.data
     .map((w) => w.login)
     .filter((w) => w !== "patlillis" && w !== "patlillis-xx");
 
   // Check topics
-  const topics = repo.topics ?? [];
+  const topics = repoInfo.data.topics ?? [];
 
   // Check forks.
-  const allForks = await api.repos.listForks({
-    owner: "patlillis-xx",
-    repo: projectName,
-  });
+  const allForks = await api.repos.listForks({ owner, repo });
   const forks = allForks.data
     .map((f) => f.full_name)
     .filter((f) => f !== `patlillis/${projectName}`);
 
   // Check issues.
-  const allIssues = await api.issues.listForRepo({
-    owner: "patlillis-xx",
-    repo: projectName,
-  });
+  const allIssues = await api.issues.listForRepo({ owner, repo });
   const issues = allIssues.data.map((i) => i.title);
 
   // Check github pages.
   let pages = null;
-  if (repo.has_pages) {
-    const allPages = await api.repos.getPages({
-      owner: "patlillis-xx",
-      repo: projectName,
-    });
+  if (repoInfo.data.has_pages) {
+    const allPages = await api.repos.getPages({ owner, repo });
     pages = allPages.data.html_url;
   }
 
   // Check downloads.
   let downloads: string[] = [];
-  if (repo.has_downloads) {
-    const allDownloads = await api.repos.listDownloads({
-      owner: "patlillis-xx",
-      repo: projectName,
-    });
+  if (repoInfo.data.has_downloads) {
+    const allDownloads = await api.repos.listDownloads({ owner, repo });
     downloads = allDownloads.data.map((d) => d.name);
   }
 
   return {
-    owner: "patlillis-xx",
-    repo: projectName,
+    owner,
+    repo,
     stargazers,
     watchers,
     topics,
@@ -174,46 +163,46 @@ const printProjectInfo = (info: ProjectInfo) => {
       console.log(problem);
     }
   }
-
-  console.log();
 };
 
 const importRepo = async (projectName: string) => {
   console.log(`Importing project ${chalk.green(projectName)}`);
 
-  const forkName = `${projectName}-fork`;
+  // const forkName = `${projectName}-fork`;
   const cloneName = `${projectName}-clone`;
 
   // Grab info about base fork.
   const { data: repo } = await api.repos.get({
-    owner: "patlillis-xx",
+    owner: "patlillis",
     repo: projectName,
   });
   console.log(
     `\t${chalk.gray("Got info from repo")} ${chalk.cyan(
-      `patlillis-xx/${projectName}`
+      `patlillis/${projectName}`
     )}`
   );
 
-  // 1. Rename fork to "-fork".
-  await api.repos.update({
-    owner: "patlillis",
-    repo: projectName,
-    name: forkName,
-  });
-  console.log(
-    `\t${chalk.gray("Renamed fork to")} ${chalk.cyan(`patlillis/${forkName}`)}`
-  );
+  // Rename fork to "-fork".
+  // await api.repos.update({
+  //   owner: "patlillis",
+  //   repo: projectName,
+  //   name: forkName,
+  // });
+  // console.log(
+  //   `\t${chalk.gray("Renamed fork to")} ${chalk.cyan(`patlillis/${forkName}`)}`
+  // );
 
-  // 2. Create empty project at new name.
-  await api.repos.createForAuthenticatedUser({ name: cloneName });
+  // Create empty project at new name.
+  await api.repos.createForAuthenticatedUser({
+    name: cloneName,
+  });
   console.log(
     `\t${chalk.gray("Created empty repo ")} ${chalk.cyan(
       `patlillis/${cloneName}`
     )}`
   );
 
-  // 3. Import project from patlillis-xx to patlillis
+  // Import project from patlillis-xx to patlillis
   console.log(
     `\t${chalk.gray("Started importing into")} ${chalk.cyan(
       `patlillis/${cloneName}`
@@ -242,7 +231,7 @@ const importRepo = async (projectName: string) => {
       data: { status: importStatus, status_text: importStatusText },
     } = await api.migrations.getImportStatus({
       owner: "patlillis",
-      repo: projectName,
+      repo: cloneName,
     }));
   }
 
@@ -260,7 +249,7 @@ const importRepo = async (projectName: string) => {
     );
   }
 
-  // 4. Update random settings that don't get imported.
+  // Update random settings that don't get imported.
   await api.repos.update({
     owner: "patlillis",
     repo: cloneName,
@@ -271,9 +260,87 @@ const importRepo = async (projectName: string) => {
     has_wiki: repo.has_wiki,
     homepage: repo.homepage,
   });
+
+  // Update topics (if necessary).
+  const topics = repo.topics ?? [];
+  if (repo.topics.length > 0) {
+    await api.repos.replaceAllTopics({
+      owner: "patlillis",
+      repo: cloneName,
+      names: topics,
+    });
+    console.log(
+      `\t${chalk.gray("Added topics:")} ${chalk.cyan(topics.join(", "))}`
+    );
+  }
+
+  // Update Pages (if necessary).
+  if (repo.has_pages) {
+    const pagesInfo = await api.repos.getPages({
+      owner: "patlillis",
+      repo: projectName,
+    });
+    await api.repos.createPagesSite({
+      owner: "patlillis",
+      repo: cloneName,
+      source: {
+        branch: pagesInfo.data.source.branch as any,
+        path: pagesInfo.data.source.directory,
+      },
+    });
+    if (pagesInfo.data.cname != null) {
+      await api.repos.updateInformationAboutPagesSite({
+        owner: "patlillis",
+        repo: cloneName,
+        cname: pagesInfo.data.cname,
+      });
+    }
+  }
+};
+
+const revertImport = async (projectName: string) => {
+  console.log(`Reverting import for project ${chalk.green(projectName)}`);
+
+  const cloneName = `${projectName}-clone`;
+
+  // Delete clone.
+  await api.repos.delete({ owner: "patlillis", repo: cloneName });
+  console.log(
+    `\t${chalk.gray("Deleted project:")} ${chalk.cyan(
+      `patlillis/${cloneName}`
+    )}`
+  );
 };
 
 const main = async () => {
+  // Get list of projects to check/import.
+  const args = process.argv.slice(2);
+  const importArgIndex = args.indexOf("--import");
+  const revertArgIndex = args.indexOf("--revert");
+  const statusArgIndex = args.indexOf("--status");
+
+  // Check that only one action command was passed.
+  const argSum =
+    (importArgIndex === -1 ? 0 : 1) +
+    (revertArgIndex === -1 ? 0 : 1) +
+    (statusArgIndex === -1 ? 0 : 1);
+  if (argSum === 0) {
+    console.log(
+      chalk.red(
+        "Error: no action specfied. Use --import, --revert, or --status"
+      )
+    );
+    return;
+  }
+  if (argSum > 1) {
+    console.log(
+      chalk.red(
+        "Error: multiple actions specified. Use --import, --revert, or --status"
+      )
+    );
+    return;
+  }
+
   // Read token from "token.txt" file.
   let token: string;
   try {
@@ -287,27 +354,82 @@ const main = async () => {
   // Set up authed API.
   api = new Octokit({ auth: token });
 
-  // Get list of projects to check/import.
-  let projects = process.argv.slice(2);
-  if (projects.length === 0) {
-    const projectsFile = await fs.readFile(
-      path.join(__dirname, "projects.txt")
-    );
-    projects = projectsFile.toString().split("\n");
-  }
+  const projectsFile = await fs.readFile(path.join(__dirname, "projects.txt"));
+  const projectsFromFile = projectsFile.toString().split("\n");
 
-  // Check project status.
-  const projectInfos: ProjectInfo[] = [];
-  await Promise.all(
-    projects.map(async (project) => {
+  // Import projects if "--import" is specified.
+  if (importArgIndex !== -1) {
+    args.splice(importArgIndex, 1);
+    const projects = [];
+    if (args.length === 0) {
+      projects.push(...projectsFromFile);
+      console.log(chalk.underline("Importing all projects\n"));
+    } else {
+      projects.push(...args);
+      console.log(
+        chalk.underline(`Importing projects: ${projects.join(", ")}\n`)
+      );
+    }
+    for (const project of projects) {
       try {
-        projectInfos.push(await checkStatus(project));
+        await importRepo(project);
       } catch (err) {
         console.log(chalk.red(err.stack));
       }
-    })
-  );
-  projectInfos.forEach(printProjectInfo);
+    }
+    return;
+  }
+
+  // Revert import if "--revert" is specified.
+  if (revertArgIndex !== -1) {
+    args.splice(revertArgIndex, 1);
+    const projects = [];
+    if (args.length === 0) {
+      projects.push(...projectsFromFile);
+      console.log(chalk.underline("Reverting all projects\n"));
+    } else {
+      projects.push(...args);
+      console.log(
+        chalk.underline(`Reverting projects: ${projects.join(", ")}\n`)
+      );
+    }
+    for (const project of projects) {
+      try {
+        await revertImport(project);
+      } catch (err) {
+        console.log(chalk.red(err.stack));
+      }
+    }
+    return;
+  }
+
+  // Otherwise check project status.
+  if (statusArgIndex !== -1) {
+    const projectInfos: ProjectInfo[] = [];
+    const projects = [];
+    if (args.length === 0) {
+      projects.push(...projectsFromFile);
+      console.log(chalk.underline("Checking all projects\n"));
+    } else {
+      projects.push(...args);
+      console.log(
+        chalk.underline(`Checking projects: ${projects.join(", ")}\n`)
+      );
+    }
+    await Promise.all(
+      projects.map(async (project) => {
+        try {
+          projectInfos.push(await getProjectInfo(project));
+        } catch (err) {
+          console.log(chalk.red(err.stack));
+        }
+      })
+    );
+    sortBy(projectInfos, [
+      (p) => p.owner.toLocaleLowerCase(),
+      (p) => p.repo.toLocaleLowerCase(),
+    ]).forEach(printProjectInfo);
+  }
 };
 
 main();
