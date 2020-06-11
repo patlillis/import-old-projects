@@ -1,6 +1,7 @@
 import { Octokit } from "@octokit/rest";
 import {
   OctokitResponse,
+  ReposGetResponseData,
   ReposGetPagesResponseData,
   ActivityListStargazersForRepoResponseData,
   ActivityListWatchersForRepoResponseData,
@@ -33,8 +34,7 @@ const IMPORT_COMPLETE_STATUS = "complete";
 const IMPORT_POLL_INTERVAL = 200;
 
 type ProjectInfo = {
-  owner: string;
-  repo: string;
+  repo: ReposGetResponseData;
   topics: string[];
   stargazers: ActivityListStargazersForRepoResponseData;
   watchers: ActivityListWatchersForRepoResponseData;
@@ -140,8 +140,7 @@ const getProjectInfo = async (projectName: string): Promise<ProjectInfo> => {
   const { data: pages } = pagesResponse ?? {};
 
   return {
-    owner,
-    repo,
+    repo: repoInfo.data,
     stargazers,
     watchers,
     topics,
@@ -156,14 +155,26 @@ const printProjectInfo = (
   info: ProjectInfo,
   { namesOnly, printComments }: { namesOnly: boolean; printComments: boolean }
 ) => {
+  console.log(chalk.green(`${info.repo.full_name}`));
+  if (namesOnly) return;
+
   const IN = "   ";
-  const problems = [];
+
+  if (info.repo.description != null && info.repo.description != "") {
+    console.log(`${IN}${chalk.white(`Description:`)}`);
+    console.log(chalk.gray(`${IN}${IN}- ${chalk.cyan(info.repo.description)}`));
+  }
+
+  if (info.repo.homepage != null && info.repo.homepage != "") {
+    console.log(`${IN}${chalk.white(`Homepage:`)}`);
+    console.log(chalk.gray(`${IN}${IN}- ${chalk.cyan(info.repo.homepage)}`));
+  }
 
   // Print stargzer info.
   if (info.stargazers.length > 0) {
-    problems.push(`${IN}${chalk.white(`Stargazers:`)}`);
+    console.log(`${IN}${chalk.white(`Stargazers:`)}`);
     for (const stargazer of info.stargazers) {
-      problems.push(
+      console.log(
         chalk.gray(
           `${IN}${IN}- ${chalk.cyan(stargazer.login)} (${stargazer.html_url})`
         )
@@ -173,9 +184,9 @@ const printProjectInfo = (
 
   // Print watcher info.
   if (info.watchers.length > 0) {
-    problems.push(`${IN}${chalk.white(`Watchers:`)}`);
+    console.log(`${IN}${chalk.white(`Watchers:`)}`);
     for (const watcher of info.watchers) {
-      problems.push(
+      console.log(
         chalk.gray(
           `${IN}${IN}- ${chalk.cyan(watcher.login)} (${watcher.html_url})`
         )
@@ -185,17 +196,17 @@ const printProjectInfo = (
 
   // Print topics info.
   if (info.topics.length > 0) {
-    problems.push(`${IN}${chalk.white(`Topics:`)}`);
+    console.log(`${IN}${chalk.white(`Topics:`)}`);
     for (const topic of info.topics) {
-      problems.push(chalk.gray(`${IN}${IN}- ${chalk.cyan(topic)}`));
+      console.log(chalk.gray(`${IN}${IN}- ${chalk.cyan(topic)}`));
     }
   }
 
   // Print forks info.
   if (info.forks.length > 0) {
-    problems.push(`${IN}${chalk.white(`Forks:`)}`);
+    console.log(`${IN}${chalk.white(`Forks:`)}`);
     for (const fork of info.forks) {
-      problems.push(
+      console.log(
         chalk.gray(
           `${IN}${IN}- ${chalk.cyan(fork.full_name)} (${fork.html_url})`
         )
@@ -205,9 +216,9 @@ const printProjectInfo = (
 
   // Print issues info.
   if (info.issues.length > 0) {
-    problems.push(`${IN}${chalk.white(`Issues:`)}`);
+    console.log(`${IN}${chalk.white(`Issues:`)}`);
     for (const issue of info.issues) {
-      problems.push(
+      console.log(
         chalk.gray(
           `${IN}${IN}- ${chalk.cyan(`[${issue.number}] ${issue.title}`)} (${
             issue.html_url
@@ -216,7 +227,7 @@ const printProjectInfo = (
       );
       if (printComments) {
         if (issue.body != null && issue.body !== "") {
-          problems.push(
+          console.log(
             chalk.gray(
               `${IN}${IN}${IN}- ${chalk.cyan(`[${issue.user.login}]`)} ${
                 issue.body
@@ -225,7 +236,7 @@ const printProjectInfo = (
           );
         }
         for (const comment of info.issueComments[issue.number] ?? []) {
-          problems.push(
+          console.log(
             chalk.gray(
               `${IN}${IN}${IN}- ${chalk.cyan(`[${comment.user.login}]`)} ${
                 comment.body
@@ -239,39 +250,26 @@ const printProjectInfo = (
 
   // Print github pages info.
   if (info.pages != null) {
-    problems.push(`${IN}${chalk.white(`Pages:`)}`);
-    problems.push(chalk.gray(`${IN}${IN}- ${chalk.cyan(info.pages.html_url)}`));
+    console.log(`${IN}${chalk.white(`Pages:`)}`);
+    console.log(chalk.gray(`${IN}${IN}- ${chalk.cyan(info.pages.html_url)}`));
     if (info.pages.cname != null) {
-      problems.push(
+      console.log(
         chalk.gray(`${IN}${IN}- CNAME: ${chalk.cyan(info.pages.cname)}`)
       );
     }
-    problems.push(
+    console.log(
       chalk.gray(
         `${IN}${IN}- Source Branch: ${chalk.cyan(info.pages.source.branch)}`
       )
     );
     if (info.pages.source.directory != null) {
-      problems.push(
+      console.log(
         chalk.gray(
           `${IN}${IN}- Source Directory: ${chalk.cyan(
             info.pages.source.directory
           )}`
         )
       );
-    }
-  }
-
-  if (problems.length === 0) {
-    console.log(
-      `${chalk.green("✓")} ${chalk.green(`${info.owner}/${info.repo}`)}`
-    );
-  } else {
-    console.log(`${chalk.red("✕")} ${chalk.red(`${info.owner}/${info.repo}`)}`);
-    if (!namesOnly) {
-      for (const problem of problems) {
-        console.log(problem);
-      }
     }
   }
 };
@@ -535,7 +533,7 @@ const main = async () => {
 
   // Read status from a file.
   if (readStatusFileArg) {
-    const projectInfos = await fs.readJson("output.json");
+    const projectInfos = await fs.readJson("projects.json");
     projectInfos.projects
       .filter((p) => args.length === 0 || args.includes(p.repo))
       .forEach((p) =>
@@ -570,8 +568,8 @@ const main = async () => {
       })
     );
     const sortedProjectInfos = sortBy(projectInfos, [
-      (p) => p.owner.toLocaleLowerCase(),
-      (p) => p.repo.toLocaleLowerCase(),
+      (p) => p.repo.owner.login.toLocaleLowerCase(),
+      (p) => p.repo.name.toLocaleLowerCase(),
     ]);
 
     if (statusArg) {
@@ -582,9 +580,9 @@ const main = async () => {
         })
       );
     } else if (writeStatusFileArg) {
-      console.log(`Wrote output to ${chalk.cyan("output.json")}`);
+      console.log(`Wrote output to ${chalk.cyan("projects.json")}`);
       await fs.writeJson(
-        "output.json",
+        "projects.json",
         { projects: sortedProjectInfos },
         { spaces: 2 }
       );
