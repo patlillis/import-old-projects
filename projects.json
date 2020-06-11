@@ -8697,7 +8697,7 @@
           "mirror_url": null,
           "archived": false,
           "disabled": false,
-          "open_issues_count": 4,
+          "open_issues_count": 5,
           "license": {
             "key": "mit",
             "name": "MIT License",
@@ -8706,7 +8706,7 @@
             "node_id": "MDc6TGljZW5zZTEz"
           },
           "forks": 135,
-          "open_issues": 4,
+          "open_issues": 5,
           "watchers": 4249,
           "default_branch": "master"
         },
@@ -8797,7 +8797,7 @@
           "mirror_url": null,
           "archived": false,
           "disabled": false,
-          "open_issues_count": 4,
+          "open_issues_count": 5,
           "license": {
             "key": "mit",
             "name": "MIT License",
@@ -8806,7 +8806,7 @@
             "node_id": "MDc6TGljZW5zZTEz"
           },
           "forks": 135,
-          "open_issues": 4,
+          "open_issues": 5,
           "watchers": 4249,
           "default_branch": "master"
         },
@@ -10033,7 +10033,7 @@
           "releases_url": "https://api.github.com/repos/vuejs-templates/webpack-simple/releases{/id}",
           "deployments_url": "https://api.github.com/repos/vuejs-templates/webpack-simple/deployments",
           "created_at": "2015-12-27T01:32:14Z",
-          "updated_at": "2020-06-03T00:33:59Z",
+          "updated_at": "2020-06-11T07:17:54Z",
           "pushed_at": "2020-04-22T11:33:18Z",
           "git_url": "git://github.com/vuejs-templates/webpack-simple.git",
           "ssh_url": "git@github.com:vuejs-templates/webpack-simple.git",
@@ -10041,8 +10041,8 @@
           "svn_url": "https://github.com/vuejs-templates/webpack-simple",
           "homepage": "",
           "size": 54,
-          "stargazers_count": 2229,
-          "watchers_count": 2229,
+          "stargazers_count": 2230,
+          "watchers_count": 2230,
           "language": "JavaScript",
           "has_issues": true,
           "has_projects": true,
@@ -10057,7 +10057,7 @@
           "license": null,
           "forks": 931,
           "open_issues": 22,
-          "watchers": 2229,
+          "watchers": 2230,
           "default_branch": "master"
         },
         "source": {
@@ -10127,7 +10127,7 @@
           "releases_url": "https://api.github.com/repos/vuejs-templates/webpack-simple/releases{/id}",
           "deployments_url": "https://api.github.com/repos/vuejs-templates/webpack-simple/deployments",
           "created_at": "2015-12-27T01:32:14Z",
-          "updated_at": "2020-06-03T00:33:59Z",
+          "updated_at": "2020-06-11T07:17:54Z",
           "pushed_at": "2020-04-22T11:33:18Z",
           "git_url": "git://github.com/vuejs-templates/webpack-simple.git",
           "ssh_url": "git@github.com:vuejs-templates/webpack-simple.git",
@@ -10135,8 +10135,8 @@
           "svn_url": "https://github.com/vuejs-templates/webpack-simple",
           "homepage": "",
           "size": 54,
-          "stargazers_count": 2229,
-          "watchers_count": 2229,
+          "stargazers_count": 2230,
+          "watchers_count": 2230,
           "language": "JavaScript",
           "has_issues": true,
           "has_projects": true,
@@ -10151,7 +10151,7 @@
           "license": null,
           "forks": 931,
           "open_issues": 22,
-          "watchers": 2229,
+          "watchers": 2230,
           "default_branch": "master"
         },
         "network_count": 931,
