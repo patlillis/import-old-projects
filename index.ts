@@ -1,4 +1,13 @@
 import { Octokit } from "@octokit/rest";
+import {
+  OctokitResponse,
+  ReposGetPagesResponseData,
+  ActivityListStargazersForRepoResponseData,
+  ActivityListWatchersForRepoResponseData,
+  ReposListForksResponseData,
+  IssuesListForRepoResponseData,
+  IssuesListCommentsResponseData,
+} from "@octokit/types";
 import chalk from "chalk";
 import fs from "fs-extra";
 import { sortBy } from "lodash";
@@ -26,13 +35,13 @@ const IMPORT_POLL_INTERVAL = 200;
 type ProjectInfo = {
   owner: string;
   repo: string;
-  stargazers: string[];
-  watchers: string[];
   topics: string[];
-  forks: string[];
-  issues: string[];
-  pages: string | null;
-  downloads: string[];
+  stargazers: ActivityListStargazersForRepoResponseData;
+  watchers: ActivityListWatchersForRepoResponseData;
+  forks: ReposListForksResponseData;
+  issues: IssuesListForRepoResponseData;
+  issueComments: { [issueNumber: string]: IssuesListCommentsResponseData };
+  pages: ReposGetPagesResponseData;
 };
 
 const checkPermissions = async (projectName: string, username: string) => {
@@ -51,54 +60,84 @@ const checkPermissions = async (projectName: string, username: string) => {
 const getProjectInfo = async (projectName: string): Promise<ProjectInfo> => {
   // Grab info about base project.
   const repoInfo = await api.repos.get({
-    owner: "patlillis",
+    owner: "patlillis-xx",
     repo: projectName,
   });
 
   const owner = repoInfo.data.owner.login;
   const repo = repoInfo.data.name;
 
-  // Check stargazer info.
-  const allStargazers = await api.activity.listStargazersForRepo({
-    owner,
-    repo,
-  });
-  const stargazers = (allStargazers.data as any[])
-    .map((s) => s.login)
-    .filter((s) => s !== "patlillis" && s !== "patlillis-xx");
+  const [
+    stargazersResponse,
+    watchersResponse,
+    forksResponse,
+    issuesResponse,
+    pagesResponse,
+  ] = await Promise.all([
+    api.activity.listStargazersForRepo({
+      owner,
+      repo,
+    }),
 
+    api.activity.listWatchersForRepo({
+      owner,
+      repo,
+    }),
+
+    api.repos.listForks({ owner, repo }),
+
+    api.issues.listForRepo({
+      owner,
+      repo,
+      state: "all",
+    }),
+
+    repoInfo.data.has_pages ? api.repos.getPages({ owner, repo }) : null,
+  ]);
+
+  // Check stargazer info.
+  const stargazers = (stargazersResponse.data as ActivityListStargazersForRepoResponseData).filter(
+    (s) => s.login !== "patlillis" && s.login !== "patlillis-xx"
+  );
   // Check watcher info.
-  const allWatchers = await api.activity.listWatchersForRepo({ owner, repo });
-  const watchers = allWatchers.data
-    .map((w) => w.login)
-    .filter((w) => w !== "patlillis" && w !== "patlillis-xx");
+  const watchers = watchersResponse.data.filter(
+    (w) => w.login !== "patlillis" && w.login !== "patlillis-xx"
+  );
 
   // Check topics
   const topics = repoInfo.data.topics ?? [];
 
   // Check forks.
-  const allForks = await api.repos.listForks({ owner, repo });
-  const forks = allForks.data
-    .map((f) => f.full_name)
-    .filter((f) => f !== `patlillis/${projectName}`);
+  const forks = forksResponse.data.filter(
+    (f) => f.full_name !== `patlillis/${projectName}`
+  );
 
   // Check issues.
-  const allIssues = await api.issues.listForRepo({ owner, repo });
-  const issues = allIssues.data.map((i) => i.title);
+  const { data: issues } = issuesResponse;
+  issues.sort((a, b) => a.number - b.number);
+  const issueCommentPromises: Promise<
+    OctokitResponse<IssuesListCommentsResponseData>
+  >[] = [];
+  for (const issue of issues) {
+    issueCommentPromises.push(
+      api.issues.listComments({
+        owner,
+        repo,
+        issue_number: issue.number,
+      })
+    );
+  }
+  const issueCommentResponses = await Promise.all(issueCommentPromises);
+  const issueComments: {
+    [issueNumber: string]: IssuesListCommentsResponseData;
+  } = {};
+  for (let i = 0; i < issueCommentResponses.length; i++) {
+    const issue = issues[i];
+    issueComments[issue.number] = issueCommentResponses[i].data;
+  }
 
   // Check github pages.
-  let pages = null;
-  if (repoInfo.data.has_pages) {
-    const allPages = await api.repos.getPages({ owner, repo });
-    pages = allPages.data.html_url;
-  }
-
-  // Check downloads.
-  let downloads: string[] = [];
-  if (repoInfo.data.has_downloads) {
-    const allDownloads = await api.repos.listDownloads({ owner, repo });
-    downloads = allDownloads.data.map((d) => d.name);
-  }
+  const { data: pages } = pagesResponse ?? {};
 
   return {
     owner,
@@ -108,59 +147,131 @@ const getProjectInfo = async (projectName: string): Promise<ProjectInfo> => {
     topics,
     forks,
     issues,
+    issueComments,
     pages,
-    downloads,
   };
 };
 
-const printProjectInfo = (info: ProjectInfo) => {
+const printProjectInfo = (
+  info: ProjectInfo,
+  { namesOnly, printComments }: { namesOnly: boolean; printComments: boolean }
+) => {
+  const IN = "   ";
   const problems = [];
 
   // Print stargzer info.
   if (info.stargazers.length > 0) {
-    problems.push(`\t${chalk.gray(`Stargazers: ${info.stargazers.length}`)}`);
+    problems.push(`${IN}${chalk.white(`Stargazers:`)}`);
+    for (const stargazer of info.stargazers) {
+      problems.push(
+        chalk.gray(
+          `${IN}${IN}- ${chalk.cyan(stargazer.login)} (${stargazer.html_url})`
+        )
+      );
+    }
   }
 
   // Print watcher info.
   if (info.watchers.length > 0) {
-    problems.push(`\t${chalk.gray(`Watchers: ${info.watchers.length}`)}`);
+    problems.push(`${IN}${chalk.white(`Watchers:`)}`);
+    for (const watcher of info.watchers) {
+      problems.push(
+        chalk.gray(
+          `${IN}${IN}- ${chalk.cyan(watcher.login)} (${watcher.html_url})`
+        )
+      );
+    }
   }
 
   // Print topics info.
   if (info.topics.length > 0) {
-    problems.push(`\t${chalk.gray(`Topics: ${info.topics.length}`)}`);
+    problems.push(`${IN}${chalk.white(`Topics:`)}`);
+    for (const topic of info.topics) {
+      problems.push(chalk.gray(`${IN}${IN}- ${chalk.cyan(topic)}`));
+    }
   }
 
   // Print forks info.
   if (info.forks.length > 0) {
-    problems.push(`\t${chalk.gray(`Forks: ${info.forks.length}`)}`);
+    problems.push(`${IN}${chalk.white(`Forks:`)}`);
+    for (const fork of info.forks) {
+      problems.push(
+        chalk.gray(
+          `${IN}${IN}- ${chalk.cyan(fork.full_name)} (${fork.html_url})`
+        )
+      );
+    }
   }
 
   // Print issues info.
   if (info.issues.length > 0) {
-    problems.push(`\t${chalk.gray(`Issues: ${info.issues.length}`)}`);
+    problems.push(`${IN}${chalk.white(`Issues:`)}`);
+    for (const issue of info.issues) {
+      problems.push(
+        chalk.gray(
+          `${IN}${IN}- ${chalk.cyan(`[${issue.number}] ${issue.title}`)} (${
+            issue.html_url
+          })`
+        )
+      );
+      if (printComments) {
+        if (issue.body != null && issue.body !== "") {
+          problems.push(
+            chalk.gray(
+              `${IN}${IN}${IN}- ${chalk.cyan(`[${issue.user.login}]`)} ${
+                issue.body
+              }`
+            )
+          );
+        }
+        for (const comment of info.issueComments[issue.number] ?? []) {
+          problems.push(
+            chalk.gray(
+              `${IN}${IN}${IN}- ${chalk.cyan(`[${comment.user.login}]`)} ${
+                comment.body
+              }`
+            )
+          );
+        }
+      }
+    }
   }
 
   // Print github pages info.
   if (info.pages != null) {
-    problems.push(`\t${chalk.gray(`Pages: ${info.pages}`)}`);
-  }
-
-  // Print downloads info.
-  if (info.downloads.length > 0) {
-    problems.push(`\t${chalk.gray(`Downloads: ${info.downloads.length}`)}`);
+    problems.push(`${IN}${chalk.white(`Pages:`)}`);
+    problems.push(chalk.gray(`${IN}${IN}- ${chalk.cyan(info.pages.html_url)}`));
+    if (info.pages.cname != null) {
+      problems.push(
+        chalk.gray(`${IN}${IN}- CNAME: ${chalk.cyan(info.pages.cname)}`)
+      );
+    }
+    problems.push(
+      chalk.gray(
+        `${IN}${IN}- Source Branch: ${chalk.cyan(info.pages.source.branch)}`
+      )
+    );
+    if (info.pages.source.directory != null) {
+      problems.push(
+        chalk.gray(
+          `${IN}${IN}- Source Directory: ${chalk.cyan(
+            info.pages.source.directory
+          )}`
+        )
+      );
+    }
   }
 
   if (problems.length === 0) {
     console.log(
-      `${chalk.green("✓")} ${chalk.cyan(`${info.owner}/${info.repo}`)}`
+      `${chalk.green("✓")} ${chalk.green(`${info.owner}/${info.repo}`)}`
     );
   } else {
-    console.log(
-      `${chalk.red("✕")} ${chalk.cyan(`${info.owner}/${info.repo}`)}`
-    );
-    for (const problem of problems) {
-      console.log(problem);
+    console.log(`${chalk.red("✕")} ${chalk.red(`${info.owner}/${info.repo}`)}`);
+    if (!namesOnly) {
+      for (const problem of problems) {
+        console.log(problem);
+      }
     }
   }
 };
@@ -314,20 +425,36 @@ const revertImport = async (projectName: string) => {
 
 const main = async () => {
   // Get list of projects to check/import.
-  const args = process.argv.slice(2);
-  const importArgIndex = args.indexOf("--import");
-  const revertArgIndex = args.indexOf("--revert");
-  const statusArgIndex = args.indexOf("--status");
+  let args = process.argv.slice(2);
+  const importArg = args.includes("--import");
+  const revertArg = args.includes("--revert");
+  const statusArg = args.includes("--status");
+  const writeStatusFileArg = args.includes("--write-status-file");
+  const readStatusFileArg = args.includes("--read-status-file");
+  const showCommentsArg = args.includes("--show-comments");
+  const namesOnlyArg = args.includes("--names-only");
+  args = args.filter(
+    (a) =>
+      a !== "--import" &&
+      a !== "--revert" &&
+      a !== "--status" &&
+      a !== "--write-status-file" &&
+      a !== "--read-status-file" &&
+      a !== "--show-comments" &&
+      a !== "--names-only"
+  );
 
   // Check that only one action command was passed.
   const argSum =
-    (importArgIndex === -1 ? 0 : 1) +
-    (revertArgIndex === -1 ? 0 : 1) +
-    (statusArgIndex === -1 ? 0 : 1);
+    (importArg ? 1 : 0) +
+    (revertArg ? 1 : 0) +
+    (statusArg ? 1 : 0) +
+    (writeStatusFileArg ? 1 : 0) +
+    (readStatusFileArg ? 1 : 0);
   if (argSum === 0) {
     console.log(
       chalk.red(
-        "Error: no action specfied. Use --import, --revert, or --status"
+        "Error: no action specfied. Use --import, --revert, --status, --write-status-file, or --read-status-file"
       )
     );
     return;
@@ -335,7 +462,7 @@ const main = async () => {
   if (argSum > 1) {
     console.log(
       chalk.red(
-        "Error: multiple actions specified. Use --import, --revert, or --status"
+        "Error: multiple actions specified. Use --import, --revert, --status, --write-status-file, or --read-status-file"
       )
     );
     return;
@@ -354,15 +481,19 @@ const main = async () => {
   // Set up authed API.
   api = new Octokit({ auth: token });
 
-  const projectsFile = await fs.readFile(path.join(__dirname, "projects.txt"));
-  const projectsFromFile = projectsFile.toString().split("\n");
+  const fetchAllProjects = async (): Promise<string[]> => {
+    const projectsResponse = await api.repos.listForUser({
+      username: "patlillis-xx",
+      per_page: 100,
+    });
+    return projectsResponse.data.map((p) => p.name);
+  };
 
   // Import projects if "--import" is specified.
-  if (importArgIndex !== -1) {
-    args.splice(importArgIndex, 1);
+  if (importArg) {
     const projects = [];
     if (args.length === 0) {
-      projects.push(...projectsFromFile);
+      projects.push(...(await fetchAllProjects()));
       console.log(chalk.underline("Importing all projects\n"));
     } else {
       projects.push(...args);
@@ -381,11 +512,10 @@ const main = async () => {
   }
 
   // Revert import if "--revert" is specified.
-  if (revertArgIndex !== -1) {
-    args.splice(revertArgIndex, 1);
+  if (revertArg) {
     const projects = [];
     if (args.length === 0) {
-      projects.push(...projectsFromFile);
+      projects.push(...(await fetchAllProjects()));
       console.log(chalk.underline("Reverting all projects\n"));
     } else {
       projects.push(...args);
@@ -403,12 +533,26 @@ const main = async () => {
     return;
   }
 
-  // Otherwise check project status.
-  if (statusArgIndex !== -1) {
+  // Read status from a file.
+  if (readStatusFileArg) {
+    const projectInfos = await fs.readJson("output.json");
+    projectInfos.projects
+      .filter((p) => args.length === 0 || args.includes(p.repo))
+      .forEach((p) =>
+        printProjectInfo(p, {
+          printComments: showCommentsArg,
+          namesOnly: namesOnlyArg,
+        })
+      );
+    return;
+  }
+
+  // Check project status.
+  if (statusArg || writeStatusFileArg) {
     const projectInfos: ProjectInfo[] = [];
     const projects = [];
     if (args.length === 0) {
-      projects.push(...projectsFromFile);
+      projects.push(...(await fetchAllProjects()));
       console.log(chalk.underline("Checking all projects\n"));
     } else {
       projects.push(...args);
@@ -425,10 +569,26 @@ const main = async () => {
         }
       })
     );
-    sortBy(projectInfos, [
+    const sortedProjectInfos = sortBy(projectInfos, [
       (p) => p.owner.toLocaleLowerCase(),
       (p) => p.repo.toLocaleLowerCase(),
-    ]).forEach(printProjectInfo);
+    ]);
+
+    if (statusArg) {
+      sortedProjectInfos.forEach((p) =>
+        printProjectInfo(p, {
+          printComments: showCommentsArg,
+          namesOnly: namesOnlyArg,
+        })
+      );
+    } else if (writeStatusFileArg) {
+      console.log(`Wrote output to ${chalk.cyan("output.json")}`);
+      await fs.writeJson(
+        "output.json",
+        { projects: sortedProjectInfos },
+        { spaces: 2 }
+      );
+    }
   }
 };
 

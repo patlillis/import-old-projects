@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "scripts": {
+    "start": "ts-node index.ts",
+    "status": "ts-node index.ts --status inset.js",
+    "write-status": "ts-node index.ts --write-status-file"
+  },
   "dependencies": {
     "@octokit/rest": "^17.11.0",
     "chalk": "^4.0.0",
