@@ -7,13 +7,13 @@ import path from "path";
 
 import type { ProjectInfo } from "./types";
 import { getProjectInfo, printProjectInfo } from "./status";
-import { importRepo, revertImport } from "./import";
+import { importProject, revertImport } from "./import";
 
 const main = async () => {
   // Get list of projects to check/import.
   let args = process.argv.slice(2);
   const importArg = args.includes("--import");
-  const revertArg = args.includes("--revert");
+  const revertImportArg = args.includes("--revert-import");
   const statusArg = args.includes("--status");
   const writeStatusFileArg = args.includes("--write-status-file");
   const readStatusFileArg = args.includes("--read-status-file");
@@ -22,7 +22,7 @@ const main = async () => {
   args = args.filter(
     (a) =>
       a !== "--import" &&
-      a !== "--revert" &&
+      a !== "--revert-import" &&
       a !== "--status" &&
       a !== "--write-status-file" &&
       a !== "--read-status-file" &&
@@ -33,14 +33,14 @@ const main = async () => {
   // Check that only one action command was passed.
   const argSum =
     (importArg ? 1 : 0) +
-    (revertArg ? 1 : 0) +
+    (revertImportArg ? 1 : 0) +
     (statusArg ? 1 : 0) +
     (writeStatusFileArg ? 1 : 0) +
     (readStatusFileArg ? 1 : 0);
   if (argSum === 0) {
     console.log(
       chalk.red(
-        "Error: no action specfied. Use --import, --revert, --status, --write-status-file, or --read-status-file"
+        "Error: no action specfied. Use --import, --revert-import, --status, --write-status-file, or --read-status-file"
       )
     );
     return;
@@ -48,7 +48,7 @@ const main = async () => {
   if (argSum > 1) {
     console.log(
       chalk.red(
-        "Error: multiple actions specified. Use --import, --revert, --status, --write-status-file, or --read-status-file"
+        "Error: multiple actions specified. Use --import, --revert-import, --status, --write-status-file, or --read-status-file"
       )
     );
     return;
@@ -57,7 +57,9 @@ const main = async () => {
   // Read token from "token.txt" file.
   let token: string;
   try {
-    const tokenFile = await fs.readFile(path.join(__dirname, "token.txt"));
+    const tokenFile = await fs.readFile(
+      path.join(__dirname, "..", "token.txt")
+    );
     token = tokenFile.toString();
   } catch (err) {
     console.error("Error reading token", err);
@@ -87,9 +89,10 @@ const main = async () => {
         chalk.underline(`Importing projects: ${projects.join(", ")}\n`)
       );
     }
+    // Import projects in parallel so we don't have any issues.
     for (const project of projects) {
       try {
-        await importRepo(api, project);
+        await importProject(api, project);
       } catch (err) {
         console.log(chalk.red(err.stack));
       }
@@ -98,7 +101,7 @@ const main = async () => {
   }
 
   // Revert import if "--revert" is specified.
-  if (revertArg) {
+  if (revertImportArg) {
     const projects = [];
     if (args.length === 0) {
       projects.push(...(await fetchAllProjects()));
@@ -121,11 +124,16 @@ const main = async () => {
 
   // Read status from a file.
   if (readStatusFileArg) {
-    const projectInfos = await fs.readJson("projects.json");
+    const projectInfos = await fs.readJson(path.join("data", "projects.json"));
+
     projectInfos.projects
-      .filter((p) => args.length === 0 || args.includes(p.repo))
-      .forEach((p) =>
-        printProjectInfo(api, p, {
+      .filter(
+        (projectInfo) => args.length === 0 || args.includes(projectInfo.repo)
+      )
+      .forEach((projectInfo) =>
+        printProjectInfo({
+          api,
+          projectInfo,
           printComments: showCommentsArg,
           namesOnly: namesOnlyArg,
         })
@@ -157,7 +165,9 @@ const main = async () => {
     await Promise.all(
       projects.map(async (project) => {
         try {
-          projectInfos.push(await getProjectInfo(api, project));
+          projectInfos.push(
+            await getProjectInfo({ api, owner: "patlillis-xx", repo: project })
+          );
         } catch (err) {
           console.log(chalk.red(err.stack));
         }
@@ -169,16 +179,20 @@ const main = async () => {
     ]);
 
     if (statusArg) {
-      sortedProjectInfos.forEach((p) =>
-        printProjectInfo(api, p, {
+      sortedProjectInfos.forEach((projectInfo) =>
+        printProjectInfo({
+          api,
+          projectInfo,
           printComments: showCommentsArg,
           namesOnly: namesOnlyArg,
         })
       );
     } else if (writeStatusFileArg) {
-      console.log(`Wrote output to ${chalk.cyan("projects.json")}`);
+      console.log(
+        `Wrote output to ${chalk.cyan(path.join("data", "projects.json"))}`
+      );
       await fs.writeJson(
-        "projects.json",
+        path.join("data", "projects.json"),
         { projects: sortedProjectInfos },
         { spaces: 2 }
       );

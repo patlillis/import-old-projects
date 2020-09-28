@@ -6,16 +6,20 @@ import {
 } from "@octokit/types";
 import chalk from "chalk";
 
+import { IN } from "./constants";
 import { ProjectInfo } from "./types";
 
-export const getProjectInfo = async (
-  api: Octokit,
-  projectName: string
-): Promise<ProjectInfo> => {
+export const getProjectInfo = async (params: {
+  api: Octokit;
+  owner: string;
+  repo: string;
+}): Promise<ProjectInfo> => {
+  const { api } = params;
+
   // Grab info about base project.
   const repoInfo = await api.repos.get({
-    owner: "patlillis-xx",
-    repo: projectName,
+    owner: params.owner,
+    repo: params.repo,
   });
 
   const owner = repoInfo.data.owner.login;
@@ -63,7 +67,7 @@ export const getProjectInfo = async (
 
   // Check forks.
   const forks = forksResponse.data.filter(
-    (f) => f.full_name !== `patlillis/${projectName}`
+    (f) => f.full_name !== `patlillis/${repo}`
   );
 
   // Check issues.
@@ -105,23 +109,27 @@ export const getProjectInfo = async (
   };
 };
 
-export const printProjectInfo = (
-  api: Octokit,
-  info: ProjectInfo,
-  { namesOnly, printComments }: { namesOnly: boolean; printComments: boolean }
-) => {
-  console.log(chalk.green(`${info.repo.full_name}`));
+export const printProjectInfo = ({
+  api,
+  projectInfo,
+  namesOnly = false,
+  printComments = false,
+}: {
+  api: Octokit;
+  projectInfo: ProjectInfo;
+  namesOnly?: boolean;
+  printComments?: boolean;
+}) => {
+  console.log(chalk.green(`${projectInfo.repo.full_name}`));
   if (namesOnly) return;
 
-  const IN = "   ";
-
-  if (info.repo.fork) {
-    if (info.repo.parent != null) {
+  if (projectInfo.repo.fork) {
+    if (projectInfo.repo.parent != null) {
       console.log(`${IN}${chalk.white(`Forked from:`)}`);
       console.log(
         chalk.gray(
-          `${IN}${IN}- ${chalk.cyan(info.repo.parent.full_name)} (${
-            info.repo.parent.html_url
+          `${IN}${IN}- ${chalk.cyan(projectInfo.repo.parent.full_name)} (${
+            projectInfo.repo.parent.html_url
           })`
         )
       );
@@ -130,20 +138,27 @@ export const printProjectInfo = (
     }
   }
 
-  if (info.repo.description != null && info.repo.description != "") {
+  if (
+    projectInfo.repo.description != null &&
+    projectInfo.repo.description != ""
+  ) {
     console.log(`${IN}${chalk.white(`Description:`)}`);
-    console.log(chalk.gray(`${IN}${IN}- ${chalk.cyan(info.repo.description)}`));
+    console.log(
+      chalk.gray(`${IN}${IN}- ${chalk.cyan(projectInfo.repo.description)}`)
+    );
   }
 
-  if (info.repo.homepage != null && info.repo.homepage != "") {
+  if (projectInfo.repo.homepage != null && projectInfo.repo.homepage != "") {
     console.log(`${IN}${chalk.white(`Homepage:`)}`);
-    console.log(chalk.gray(`${IN}${IN}- ${chalk.cyan(info.repo.homepage)}`));
+    console.log(
+      chalk.gray(`${IN}${IN}- ${chalk.cyan(projectInfo.repo.homepage)}`)
+    );
   }
 
   // Print stargzer info.
-  if (info.stargazers.length > 0) {
+  if (projectInfo.stargazers.length > 0) {
     console.log(`${IN}${chalk.white(`Stargazers:`)}`);
-    for (const stargazer of info.stargazers) {
+    for (const stargazer of projectInfo.stargazers) {
       console.log(
         chalk.gray(
           `${IN}${IN}- ${chalk.cyan(stargazer.login)} (${stargazer.html_url})`
@@ -153,9 +168,9 @@ export const printProjectInfo = (
   }
 
   // Print watcher info.
-  if (info.watchers.length > 0) {
+  if (projectInfo.watchers.length > 0) {
     console.log(`${IN}${chalk.white(`Watchers:`)}`);
-    for (const watcher of info.watchers) {
+    for (const watcher of projectInfo.watchers) {
       console.log(
         chalk.gray(
           `${IN}${IN}- ${chalk.cyan(watcher.login)} (${watcher.html_url})`
@@ -165,17 +180,17 @@ export const printProjectInfo = (
   }
 
   // Print topics info.
-  if (info.topics.length > 0) {
+  if (projectInfo.topics.length > 0) {
     console.log(`${IN}${chalk.white(`Topics:`)}`);
-    for (const topic of info.topics) {
+    for (const topic of projectInfo.topics) {
       console.log(chalk.gray(`${IN}${IN}- ${chalk.cyan(topic)}`));
     }
   }
 
   // Print forks info.
-  if (info.forks.length > 0) {
+  if (projectInfo.forks.length > 0) {
     console.log(`${IN}${chalk.white(`Forks:`)}`);
-    for (const fork of info.forks) {
+    for (const fork of projectInfo.forks) {
       console.log(
         chalk.gray(
           `${IN}${IN}- ${chalk.cyan(fork.full_name)} (${fork.html_url})`
@@ -185,9 +200,9 @@ export const printProjectInfo = (
   }
 
   // Print issues info.
-  if (info.issues.length > 0) {
+  if (projectInfo.issues.length > 0) {
     console.log(`${IN}${chalk.white(`Issues:`)}`);
-    for (const issue of info.issues) {
+    for (const issue of projectInfo.issues) {
       console.log(
         chalk.gray(
           `${IN}${IN}- ${chalk.cyan(`[${issue.number}] ${issue.title}`)} (${
@@ -205,7 +220,7 @@ export const printProjectInfo = (
             )
           );
         }
-        for (const comment of info.issueComments[issue.number] ?? []) {
+        for (const comment of projectInfo.issueComments[issue.number] ?? []) {
           console.log(
             chalk.gray(
               `${IN}${IN}${IN}- ${chalk.cyan(`[${comment.user.login}]`)} ${
@@ -219,24 +234,28 @@ export const printProjectInfo = (
   }
 
   // Print github pages info.
-  if (info.pages != null) {
+  if (projectInfo.pages != null) {
     console.log(`${IN}${chalk.white(`Pages:`)}`);
-    console.log(chalk.gray(`${IN}${IN}- ${chalk.cyan(info.pages.html_url)}`));
-    if (info.pages.cname != null) {
+    console.log(
+      chalk.gray(`${IN}${IN}- ${chalk.cyan(projectInfo.pages.html_url)}`)
+    );
+    if (projectInfo.pages.cname != null) {
       console.log(
-        chalk.gray(`${IN}${IN}- CNAME: ${chalk.cyan(info.pages.cname)}`)
+        chalk.gray(`${IN}${IN}- CNAME: ${chalk.cyan(projectInfo.pages.cname)}`)
       );
     }
     console.log(
       chalk.gray(
-        `${IN}${IN}- Source Branch: ${chalk.cyan(info.pages.source.branch)}`
+        `${IN}${IN}- Source Branch: ${chalk.cyan(
+          projectInfo.pages.source.branch
+        )}`
       )
     );
-    if (info.pages.source.directory != null) {
+    if (projectInfo.pages.source.directory != null) {
       console.log(
         chalk.gray(
           `${IN}${IN}- Source Directory: ${chalk.cyan(
-            info.pages.source.directory
+            projectInfo.pages.source.directory
           )}`
         )
       );
